@@ -52,21 +52,56 @@ export OPENROUTER_API_KEY="sk-or-v1-..."
 
 ## Переменные окружения
 
+### Обязательные
+
 | Переменная | Default | Описание |
 |---|---|---|
 | `OPENROUTER_API_KEY` | — | Ключ OpenRouter (обязателен) |
+| `FAL_API_KEY` | `""` | Ключ fal.ai. Нужен только для style transfer; без него `/api/style` вернёт 400, нарезка работает |
+
+### Сервер
+
+| Переменная | Default | Описание |
+|---|---|---|
 | `HOST` | `0.0.0.0` | Хост |
 | `PORT` | `8080` | Порт |
-| `STT_MODEL` | `google/gemini-2.5-flash` | Модель для speech-to-text |
-| `ANALYSIS_MODEL` | `anthropic/claude-sonnet-4` | Модель для анализа |
-| `MAX_CONCURRENT_JOBS` | `2` | Макс. параллельных обработок |
-| `MAX_CLIPS` | `20` | Клипов на видео |
-| `MIN_CLIP_DURATION` | `10` | Мин. длина клипа (сек) |
-| `MAX_CLIP_DURATION` | `60` | Макс. длина клипа (сек) |
-| `CHUNK_DURATION` | `300` | Аудио-чанк для STT (сек) |
-| `DATA_DIR` | `./data` | Директория данных |
+| `DATA_DIR` | `./data` | Директория данных (БД, загрузки, клипы) |
 | `DB_FILE` | `clipper.db` | Файл SQLite БД |
 | `MAX_UPLOAD_MB` | `2048` | Лимит загрузки (МБ) |
+| `MAX_CONCURRENT_JOBS` | `2` | Макс. параллельных нарезок (CPU-bound: ffmpeg) |
+| `MAX_CONCURRENT_STYLE_JOBS` | `2` | Макс. параллельных style-задач (I/O-bound: ждут fal.ai). Отдельный лимит, чтобы style не блокировал нарезку |
+
+### Модели
+
+| Переменная | Default | Описание |
+|---|---|---|
+| `STT_MODEL` | `google/gemini-2.5-flash` | Модель для speech-to-text |
+| `ANALYSIS_MODEL` | `anthropic/claude-sonnet-4` | Модель для отбора моментов (игнорируется при `ANALYSIS_FUSION=true`) |
+| `REVIEWER_MODEL` | `google/gemini-2.5-flash` | Модель-ревьюер: проверяет завершённость мысли, правит таймкоды |
+| `MAX_REVIEW_ROUNDS` | `2` | Раундов ревью (`0` — отключить). При Fusion достаточно `1` |
+| `CHUNK_DURATION` | `300` | Аудио-чанк для STT (сек) |
+| `FAL_STYLE_MODEL` | `fal-ai/wan/v2.1/video-to-video` | Модель fal.ai для style transfer |
+
+### OpenRouter Fusion (отбор моментов панелью моделей)
+
+Панель моделей анализирует транскрипт параллельно, модель-судья сводит выводы. Осмысленнее одиночной модели, но **каждый вызов стоит несколько completions**.
+
+| Переменная | Default | Описание |
+|---|---|---|
+| `ANALYSIS_FUSION` | `false` | `true` — использовать `openrouter/fusion` для отбора |
+| `FUSION_PANEL` | `""` | Панель моделей через запятую (1–8). Пусто — дефолтная панель Fusion |
+| `FUSION_JUDGE` | `""` | Модель-судья. Пусто — дефолтный судья Fusion |
+| `FUSION_MAX_TOOL_CALLS` | `2` | Лимит tool-calls (веб-поиск) для панели |
+
+### Клипы
+
+| Переменная | Default | Описание |
+|---|---|---|
+| `MAX_CLIPS` | `20` | Макс. клипов на видео |
+| `MIN_CLIPS` | `3` | Мин. клипов (best-effort: зажат в `[1, MAX_CLIPS]`; если материала мало — будет меньше, в логах warn) |
+| `MIN_CLIP_DURATION` | `10` | Мин. длина клипа (сек) |
+| `MAX_CLIP_DURATION` | `90` | Макс. длина клипа (сек). При превышении режется **с начала**, чтобы сохранить концовку-вывод |
+| `CLIP_PADDING` | `2` | Запас в секундах с обеих сторон клипа, чтобы мысль не обрывалась резко |
 
 ## API
 
@@ -79,6 +114,7 @@ Multipart form-data:
 | `file` | file | Видеофайл (обязателен) |
 | `language` | string | Язык (`ru`, `en`, ...) |
 | `max_clips` | number | Макс. клипов |
+| `min_clips` | number | Мин. клипов (best-effort; зажимается в `[1, max_clips]`) |
 | `min_clip_duration` | number | Мин. длина клипа |
 | `max_clip_duration` | number | Макс. длина клипа |
 | `vertical_crop` | bool | `true` — кропить в 9:16 (1080×1920) |
@@ -237,3 +273,61 @@ services:
 volumes:
   clipper-data:
 ```
+
+## Деплой на Railway
+
+Сборка идёт по `Dockerfile` (см. `railway.toml`). **`docker-compose.yml` Railway не использует** — все переменные задаются в дашборде.
+
+### 1. Ключи
+
+Railway → сервис → **Variables** → New Variable:
+
+```
+OPENROUTER_API_KEY = sk-or-v1-...
+FAL_API_KEY        = ...            # только если нужен style transfer
+```
+
+Отметь их **Sealed** — значение нельзя прочитать обратно ни через UI, ни через API, оно только инжектится в билд и деплой. Копию храни в своём менеджере паролей: обратно Railway её не покажет.
+
+`.env` в репозиторий не коммитится (он в `.gitignore`) и на Railway не попадает — ключи живут только в Variables.
+
+### 2. Том для `/data` — обязательно
+
+SQLite (`clipper.db`), загрузки и нарезанные клипы лежат в `/data`. **Без тома они исчезают при каждом редеплое.**
+
+Railway → сервис → **Volumes** → attach, mount path `/data` (совпадает с `DATA_DIR=/data` в `Dockerfile`). Размер бери с запасом: загрузки стримятся на диск, исходники удаляются после обработки, а клипы остаются.
+
+### 3. Переменные, которых нет в Dockerfile
+
+В `Dockerfile` зашит только базовый набор, и **Fusion там отсутствует** — по умолчанию на Railway отбор пойдёт одиночной `ANALYSIS_MODEL`. Чтобы включить панель:
+
+```
+ANALYSIS_FUSION   = true
+FUSION_PANEL      = google/gemini-2.5-flash,deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini
+FUSION_JUDGE      = anthropic/claude-sonnet-4.5
+MAX_REVIEW_ROUNDS = 1
+MIN_CLIPS         = 3
+CLIP_PADDING      = 2
+```
+
+Полный список — в разделе «Переменные окружения» выше.
+
+### 4. Что работает само
+
+- **`PORT`** — Railway подставляет свой, приложение читает его из env; `HOST=0.0.0.0` уже в `Dockerfile`.
+- **ffmpeg** — ставится в рантайм-слой `Dockerfile`.
+- **Healthcheck** — `/health`, настроен в `railway.toml`.
+
+### 5. Проверка после деплоя
+
+В логах старта:
+
+```
+Analysis model:  openrouter/fusion (google/gemini-2.5-flash,...)
+fal.ai:          OK
+SQLite: /data/clipper.db
+Concurrency:     2 clip / 2 style
+```
+
+Если видишь `Analysis model: anthropic/claude-sonnet-4` — не подхватился `ANALYSIS_FUSION`.
+Если `SQLite:` указывает не на `/data` — не примонтирован том.
