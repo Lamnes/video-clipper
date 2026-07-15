@@ -1,0 +1,41 @@
+services:
+  video-clipper:
+    build: .
+    container_name: video-clipper
+    ports:
+      # Bind to IPv4 loopback only — avoids a flaky WSL2 IPv6 (::1) relay that
+      # makes http://localhost hang on Windows. Reachable from the host machine.
+      - "127.0.0.1:${PORT:-8080}:8080"
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in .env}
+      - FAL_API_KEY=${FAL_API_KEY:-}
+      - STT_MODEL=${STT_MODEL:-google/gemini-2.5-flash}
+      - ANALYSIS_MODEL=${ANALYSIS_MODEL:-anthropic/claude-sonnet-4}
+      - REVIEWER_MODEL=${REVIEWER_MODEL:-google/gemini-2.5-flash}
+      - MAX_REVIEW_ROUNDS=${MAX_REVIEW_ROUNDS:-2}
+      - ANALYSIS_FUSION=${ANALYSIS_FUSION:-false}
+      - FUSION_PANEL=${FUSION_PANEL:-}
+      - FUSION_JUDGE=${FUSION_JUDGE:-}
+      - FUSION_MAX_TOOL_CALLS=${FUSION_MAX_TOOL_CALLS:-2}
+      - FAL_STYLE_MODEL=${FAL_STYLE_MODEL:-fal-ai/wan/v2.1/video-to-video}
+      - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-2}
+      - MAX_CLIPS=${MAX_CLIPS:-20}
+      - MIN_CLIPS=${MIN_CLIPS:-3}
+      - MIN_CLIP_DURATION=${MIN_CLIP_DURATION:-10}
+      - MAX_CLIP_DURATION=${MAX_CLIP_DURATION:-90}
+      - CLIP_PADDING=${CLIP_PADDING:-2}
+      - CHUNK_DURATION=${CHUNK_DURATION:-300}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-4096}
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - clipper-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  clipper-data:

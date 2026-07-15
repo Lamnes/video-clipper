@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Clipper</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --bg2: #12121a;
+  --bg3: #1a1a26;
+  --surface: #1e1e2e;
+  --border: #2a2a3e;
+  --border-hover: #3a3a52;
+  --text: #e2e2ef;
+  --text2: #9090a8;
+  --text3: #5a5a72;
+  --accent: #6c5ce7;
+  --accent2: #a29bfe;
+  --accent-glow: rgba(108, 92, 231, 0.15);
+  --green: #00b894;
+  --green-glow: rgba(0, 184, 148, 0.15);
+  --red: #e74c6f;
+  --orange: #fdcb6e;
+  --cyan: #00cec9;
+  --radius: 10px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --mono: 'SF Mono', 'Cascadia Code', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Noise overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Header ── */
+header {
+  padding: 24px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.5px;
+}
+
+.logo-icon {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--accent), var(--cyan));
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+
+.header-status {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.header-status .dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  margin-right: 6px;
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ── Tabs ── */
+.tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 32px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 14px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.tab:hover { color: var(--text2); }
+.tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+
+/* ── Main ── */
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── Upload zone ── */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 48px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: var(--bg2);
+  position: relative;
+  overflow: hidden;
+}
+
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.upload-zone.drag-over::after {
+  content: 'Drop here';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent2);
+  background: rgba(108, 92, 231, 0.1);
+  backdrop-filter: blur(4px);
+}
+
+.upload-icon { font-size: 48px; margin-bottom: 16px; }
+.upload-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.upload-sub { font-size: 13px; color: var(--text3); }
+
+.upload-zone input[type="file"] { display: none; }
+
+/* ── Upload progress ── */
+.upload-progress {
+  display: none;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.upload-progress.active { display: block; }
+
+.upload-progress-bar {
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--cyan));
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.upload-progress-text {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text2);
+}
+
+/* ── Options row ── */
+.options-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.opt-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.opt-group label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.opt-group input, .opt-group select {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  width: 120px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.opt-group input:focus, .opt-group select:focus {
+  border-color: var(--accent);
+}
+
+.opt-group input[type="text"], .opt-group textarea {
+  width: 280px;
+}
+
+.opt-group textarea {
+  font-family: var(--font);
+  min-height: 60px;
+  resize: vertical;
+}
+
+.btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: none;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: white;
+}
+.btn-primary:hover { background: #5a4bd6; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-outline {
+  background: transparent;
+  color: var(--text2);
+  border: 1px solid var(--border);
+}
+.btn-outline:hover { border-color: var(--border-hover); color: var(--text); }
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-end;
+  padding-bottom: 4px;
+}
+
+.checkbox-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px; height: 16px;
+}
+
+.checkbox-row label {
+  font-size: 13px;
+  color: var(--text2);
+  cursor: pointer;
+}
+
+/* ── Job list ── */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 32px 0 16px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.job-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  transition: border-color 0.2s;
+}
+
+.job-card:hover { border-color: var(--border-hover); }
+
+.job-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.job-name {
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-queued { background: var(--bg3); color: var(--text3); }
+.badge-processing { background: var(--accent-glow); color: var(--accent2); }
+.badge-completed { background: var(--green-glow); color: var(--green); }
+.badge-failed { background: rgba(231, 76, 111, 0.15); color: var(--red); }
+
+/* ── Progress bar ── */
+.progress-container {
+  margin: 12px 0;
+}
+
+.progress-bar {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--cyan));
+  border-radius: 2px;
+  transition: width 0.5s ease;
+  position: relative;
+}
+
+.progress-fill.complete {
+  background: var(--green);
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text3);
+  font-family: var(--mono);
+}
+
+/* ── Clips grid ── */
+.clips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.clip-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clip-title { font-weight: 600; font-size: 13px; }
+
+.clip-meta {
+  font-size: 11px;
+  color: var(--text3);
+  font-family: var(--mono);
+  display: flex;
+  gap: 12px;
+}
+
+.clip-category {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-glow);
+  color: var(--accent2);
+}
+
+.clip-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent2);
+  background: var(--accent-glow);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+  align-self: flex-start;
+}
+
+.clip-download:hover { background: var(--accent); color: white; }
+
+.ws-log {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text3);
+  margin-top: 8px;
+  max-height: 60px;
+  overflow-y: auto;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 48px;
+  color: var(--text3);
+  font-size: 14px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  header { padding: 16px; }
+  main { padding: 16px; }
+  .tabs { padding: 0 16px; }
+  .upload-zone { padding: 32px 16px; }
+  .options-row { flex-direction: column; }
+  .opt-group input, .opt-group select, .opt-group input[type="text"], .opt-group textarea { width: 100%; }
+  .clips-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🎬</div>
+    Video Clipper
+  </div>
+  <div class="header-status" id="serverStatus">
+    <span class="dot"></span>Connecting...
+  </div>
+</header>
+
+<nav class="tabs">
+  <div class="tab active" data-tab="clips">✂️ Clip Extraction</div>
+  <div class="tab" data-tab="style">🎨 Style Transfer</div>
+</nav>
+
+<main>
+
+<!-- ═══════ CLIP PANEL ═══════ -->
+<div class="panel active" id="panel-clips">
+
+  <div class="upload-zone" id="clipUpload">
+    <div class="upload-icon">📹</div>
+    <div class="upload-title">Drop video or click to upload</div>
+    <div class="upload-sub">AI finds the most interesting moments and cuts them into clips</div>
+    <input type="file" accept="video/*" id="clipFile">
+    <div class="upload-progress" id="clipProgress">
+      <div class="upload-progress-bar"><div class="upload-progress-fill" id="clipProgressFill"></div></div>
+      <div class="upload-progress-text">
+        <span id="clipProgressMsg">Uploading...</span>
+        <span id="clipProgressPct">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="options-row" id="clipOptions">
+    <div class="opt-group">
+      <label>Language</label>
+      <input type="text" id="clipLang" placeholder="auto" value="">
+    </div>
+    <div class="opt-group">
+      <label>Min clips</label>
+      <input type="number" id="clipMinCount" value="3" min="1" max="50">
+    </div>
+    <div class="opt-group">
+      <label>Max clips</label>
+      <input type="number" id="clipMax" value="10" min="1" max="50">
+    </div>
+    <div class="opt-group">
+      <label>Min duration</label>
+      <input type="number" id="clipMinDur" value="10" min="5" max="120">
+    </div>
+    <div class="opt-group">
+      <label>Max duration</label>
+      <input type="number" id="clipMaxDur" value="90" min="10" max="300">
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="clipVertical">
+      <label for="clipVertical">9:16 Shorts</label>
+    </div>
+    <button class="btn btn-primary" id="clipSubmit" disabled>⚡ Process</button>
+  </div>
+
+  <div class="section-header">
+    <div class="section-title">Jobs</div>
+    <button class="btn btn-outline" onclick="refreshJobs()">↻ Refresh</button>
+  </div>
+
+  <div class="job-list" id="clipJobs">
+    <div class="empty-state">No jobs yet. Upload a video to get started.</div>
+  </div>
+</div>
+
+<!-- ═══════ STYLE PANEL ═══════ -->
+<div class="panel" id="panel-style">
+
+  <div class="upload-zone" id="styleUpload">
+    <div class="upload-icon">🎨</div>
+    <div class="upload-title">Drop video to style transfer</div>
+    <div class="upload-sub">Transform any video into anime, cyberpunk, watercolor and more via fal.ai</div>
+    <input type="file" accept="video/*" id="styleFile">
+    <div class="upload-progress" id="styleProgress">
+      <div class="upload-progress-bar"><div class="upload-progress-fill" id="styleProgressFill"></div></div>
+      <div class="upload-progress-text">
+        <span id="styleProgressMsg">Uploading...</span>
+        <span id="styleProgressPct">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="options-row" id="styleOptions">
+    <div class="opt-group">
+      <label>Style prompt</label>
+      <textarea id="stylePrompt" placeholder="anime style, cel shading, vibrant colors, Studio Ghibli aesthetic"></textarea>
+    </div>
+    <div class="opt-group">
+      <label>Strength</label>
+      <input type="number" id="styleStrength" value="0.65" min="0" max="1" step="0.05">
+    </div>
+    <div class="opt-group">
+      <label>Model</label>
+      <select id="styleModel">
+        <option value="">Default (Wan v2.1)</option>
+        <option value="fal-ai/wan/v2.1/video-to-video">Wan v2.1</option>
+        <option value="fal-ai/kling-video/v2.1/standard/video-to-video">Kling v2.1</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" id="styleSubmit" disabled>🎨 Stylize</button>
+  </div>
+
+  <div class="section-header">
+    <div class="section-title">Style Jobs</div>
+    <button class="btn btn-outline" onclick="refreshStyleJobs()">↻ Refresh</button>
+  </div>
+
+  <div class="job-list" id="styleJobs">
+    <div class="empty-state">No style jobs yet.</div>
+  </div>
+</div>
+
+</main>
+
+<script>
+const API = '';
+let selectedClipFile = null;
+let selectedStyleFile = null;
+const wsConnections = {};
+
+// ── Tabs ──
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Health check ──
+async function checkHealth() {
+  try {
+    const r = await fetch(API + '/health');
+    const d = await r.json();
+    document.getElementById('serverStatus').innerHTML =
+      '<span class="dot"></span>Online — v' + d.version;
+  } catch {
+    document.getElementById('serverStatus').innerHTML =
+      '<span class="dot" style="background:var(--red)"></span>Offline';
+  }
+}
+checkHealth();
+setInterval(checkHealth, 30000);
+
+// ── Drag & drop + click ──
+function setupUpload(zoneId, fileId, onSelect) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(fileId);
+
+  zone.addEventListener('click', (e) => {
+    // Don't open file picker if upload is in progress
+    if (zone.querySelector('.upload-progress.active')) return;
+    if (e.target.closest('.upload-progress')) return;
+    input.click();
+  });
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) onSelect(e.dataTransfer.files[0], zone);
+  });
+  input.addEventListener('change', () => { if (input.files.length) onSelect(input.files[0], zone); });
+}
+
+function showFileSelected(file, zone) {
+  const mb = (file.size / 1e6).toFixed(1);
+  zone.querySelector('.upload-title').textContent = file.name;
+  zone.querySelector('.upload-sub').textContent = mb + ' MB';
+  zone.style.borderColor = 'var(--green)';
+}
+
+setupUpload('clipUpload', 'clipFile', (f, z) => {
+  selectedClipFile = f;
+  showFileSelected(f, z);
+  document.getElementById('clipSubmit').disabled = false;
+});
+
+setupUpload('styleUpload', 'styleFile', (f, z) => {
+  selectedStyleFile = f;
+  showFileSelected(f, z);
+  document.getElementById('styleSubmit').disabled = false;
+});
+
+// ── Submit clip job ──
+document.getElementById('clipSubmit').addEventListener('click', () => {
+  if (!selectedClipFile) return;
+  const btn = document.getElementById('clipSubmit');
+  btn.disabled = true;
+  btn.textContent = '⏳ Uploading...';
+
+  const form = new FormData();
+  form.append('file', selectedClipFile);
+  const lang = document.getElementById('clipLang').value;
+  if (lang) form.append('language', lang);
+  form.append('max_clips', document.getElementById('clipMax').value);
+  form.append('min_clips', document.getElementById('clipMinCount').value);
+  form.append('min_clip_duration', document.getElementById('clipMinDur').value);
+  form.append('max_clip_duration', document.getElementById('clipMaxDur').value);
+  if (document.getElementById('clipVertical').checked) form.append('vertical_crop', 'true');
+
+  uploadWithProgress(form, API + '/api/jobs', {
+    progressEl: 'clipProgress',
+    fillEl: 'clipProgressFill',
+    msgEl: 'clipProgressMsg',
+    pctEl: 'clipProgressPct',
+    fileSize: selectedClipFile.size,
+    onSuccess: (job) => {
+      btn.textContent = '⚡ Process';
+      btn.disabled = false;
+      selectedClipFile = null;
+      resetUploadZone('clipUpload');
+      hideProgress('clipProgress');
+      connectJobWS(job.id);
+      refreshJobs();
+    },
+    onError: () => {
+      btn.textContent = '❌ Error';
+      hideProgress('clipProgress');
+      setTimeout(() => { btn.textContent = '⚡ Process'; btn.disabled = false; }, 2000);
+    }
+  });
+});
+
+// ── Submit style job ──
+document.getElementById('styleSubmit').addEventListener('click', () => {
+  if (!selectedStyleFile) return;
+  const prompt = document.getElementById('stylePrompt').value;
+  if (!prompt.trim()) { alert('Enter a style prompt'); return; }
+
+  const btn = document.getElementById('styleSubmit');
+  btn.disabled = true;
+  btn.textContent = '⏳ Uploading...';
+
+  const form = new FormData();
+  form.append('file', selectedStyleFile);
+  form.append('prompt', prompt);
+  form.append('strength', document.getElementById('styleStrength').value);
+  const model = document.getElementById('styleModel').value;
+  if (model) form.append('model', model);
+
+  uploadWithProgress(form, API + '/api/style', {
+    progressEl: 'styleProgress',
+    fillEl: 'styleProgressFill',
+    msgEl: 'styleProgressMsg',
+    pctEl: 'styleProgressPct',
+    fileSize: selectedStyleFile.size,
+    onSuccess: (job) => {
+      btn.textContent = '🎨 Stylize';
+      btn.disabled = false;
+      selectedStyleFile = null;
+      resetUploadZone('styleUpload');
+      hideProgress('styleProgress');
+      connectStyleWS(job.id);
+      refreshStyleJobs();
+    },
+    onError: () => {
+      btn.textContent = '❌ Error';
+      hideProgress('styleProgress');
+      setTimeout(() => { btn.textContent = '🎨 Stylize'; btn.disabled = false; }, 2000);
+    }
+  });
+});
+
+function resetUploadZone(id) {
+  const z = document.getElementById(id);
+  z.style.borderColor = '';
+  z.querySelector('.upload-title').textContent = 'Drop video or click to upload';
+  z.querySelector('.upload-sub').textContent = '';
+  const prog = z.querySelector('.upload-progress');
+  if (prog) prog.classList.remove('active');
+}
+
+function hideProgress(elId) {
+  document.getElementById(elId).classList.remove('active');
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1e6) return (bytes / 1024).toFixed(0) + ' KB';
+  if (bytes < 1e9) return (bytes / 1e6).toFixed(1) + ' MB';
+  return (bytes / 1e9).toFixed(2) + ' GB';
+}
+
+function formatSpeed(bytesPerSec) {
+  if (bytesPerSec < 1e6) return (bytesPerSec / 1024).toFixed(0) + ' KB/s';
+  return (bytesPerSec / 1e6).toFixed(1) + ' MB/s';
+}
+
+function formatEta(seconds) {
+  if (!isFinite(seconds) || seconds < 0) return '—';
+  if (seconds < 60) return Math.ceil(seconds) + 's';
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + Math.ceil(seconds % 60) + 's';
+  return Math.floor(seconds / 3600) + 'h ' + Math.floor((seconds % 3600) / 60) + 'm';
+}
+
+/**
+ * Upload FormData with progress via XMLHttpRequest.
+ * opts: { progressEl, fillEl, msgEl, pctEl, fileSize, onSuccess, onError }
+ */
+function uploadWithProgress(form, url, opts) {
+  const progContainer = document.getElementById(opts.progressEl);
+  const fill = document.getElementById(opts.fillEl);
+  const msg = document.getElementById(opts.msgEl);
+  const pct = document.getElementById(opts.pctEl);
+
+  progContainer.classList.add('active');
+  fill.style.width = '0%';
+  fill.style.background = '';
+  msg.textContent = 'Starting upload...';
+  pct.textContent = '0%';
+
+  const startTime = Date.now();
+  let lastLoaded = 0;
+  let lastTime = startTime;
+
+  const xhr = new XMLHttpRequest();
+
+  xhr.upload.addEventListener('progress', (e) => {
+    if (!e.lengthComputable) return;
+
+    const percent = Math.round((e.loaded / e.total) * 100);
+    fill.style.width = percent + '%';
+    pct.textContent = percent + '%';
+
+    // Speed calculation (smoothed over last interval)
+    const now = Date.now();
+    const elapsed = (now - startTime) / 1000;
+    const intervalBytes = e.loaded - lastLoaded;
+    const intervalTime = (now - lastTime) / 1000;
+
+    let speed = 0;
+    if (intervalTime > 0.3) {
+      speed = intervalBytes / intervalTime;
+      lastLoaded = e.loaded;
+      lastTime = now;
+    }
+
+    const avgSpeed = elapsed > 0 ? e.loaded / elapsed : 0;
+    const remaining = e.total - e.loaded;
+    const eta = avgSpeed > 0 ? remaining / avgSpeed : 0;
+
+    msg.textContent = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}  ·  ${formatSpeed(speed || avgSpeed)}  ·  ${formatEta(eta)} left`;
+  });
+
+  xhr.upload.addEventListener('loadend', () => {
+    if (xhr.readyState !== 4) {
+      // Upload done, waiting for server response
+      fill.style.width = '100%';
+      msg.textContent = 'Upload complete — waiting for server...';
+      pct.textContent = '100%';
+    }
+  });
+
+  xhr.addEventListener('load', () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        opts.onSuccess(data);
+      } catch {
+        opts.onError();
+      }
+    } else {
+      console.error('Upload failed:', xhr.status, xhr.responseText);
+      msg.textContent = 'Upload failed: HTTP ' + xhr.status;
+      fill.style.background = 'var(--red)';
+      opts.onError();
+    }
+  });
+
+  xhr.addEventListener('error', () => {
+    msg.textContent = 'Network error during upload';
+    fill.style.background = 'var(--red)';
+    opts.onError();
+  });
+
+  xhr.addEventListener('abort', () => {
+    msg.textContent = 'Upload cancelled';
+    opts.onError();
+  });
+
+  xhr.open('POST', url);
+  xhr.send(form);
+}
+
+// ── WebSocket for clip jobs ──
+function connectJobWS(jobId) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/api/jobs/${jobId}/ws`);
+  wsConnections[jobId] = ws;
+
+  ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    updateJobCard(jobId, ev);
+    if (ev.status === 'completed' || ev.status === 'failed') {
+      setTimeout(() => refreshJobs(), 500);
+    }
+  };
+  ws.onclose = () => { delete wsConnections[jobId]; };
+}
+
+function connectStyleWS(jobId) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/api/style/${jobId}/ws`);
+  wsConnections['s_' + jobId] = ws;
+
+  ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    updateStyleCard(jobId, ev);
+    if (ev.status === 'completed' || ev.status === 'failed') {
+      setTimeout(() => refreshStyleJobs(), 500);
+    }
+  };
+  ws.onclose = () => { delete wsConnections['s_' + jobId]; };
+}
+
+// ── Render clip jobs ──
+async function refreshJobs() {
+  try {
+    const r = await fetch(API + '/api/jobs');
+    const data = await r.json();
+    renderClipJobs(data.jobs);
+  } catch {}
+}
+
+function renderClipJobs(jobs) {
+  const container = document.getElementById('clipJobs');
+  if (!jobs.length) {
+    container.innerHTML = '<div class="empty-state">No jobs yet. Upload a video to get started.</div>';
+    return;
+  }
+  container.innerHTML = jobs.map(j => `
+    <div class="job-card" id="job-${j.id}">
+      <div class="job-header">
+        <div class="job-name">
+          ${j.source_filename}
+          ${badgeFor(j.status)}
+        </div>
+        <span class="job-id">${j.id.slice(0, 8)}</span>
+      </div>
+      <div class="progress-container">
+        <div class="progress-bar">
+          <div class="progress-fill ${j.status === 'completed' ? 'complete' : ''}"
+               style="width:${j.progress}%" id="prog-${j.id}"></div>
+        </div>
+        <div class="progress-info">
+          <span id="msg-${j.id}">${j.status}${j.error ? ': ' + j.error : ''}</span>
+          <span>${j.progress}%</span>
+        </div>
+      </div>
+      <div class="ws-log" id="log-${j.id}"></div>
+      ${j.status === 'completed' ? `<div id="clips-${j.id}"></div>` : ''}
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        ${j.status === 'completed' ? `<button class="btn btn-outline" onclick="loadClips('${j.id}')">📂 Show clips</button>` : ''}
+        <button class="btn btn-outline" onclick="deleteJob('${j.id}')" style="color:var(--red)">🗑</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Reconnect WS for in-progress jobs
+  jobs.filter(j => !['completed','failed'].includes(j.status) && !wsConnections[j.id])
+    .forEach(j => connectJobWS(j.id));
+}
+
+function updateJobCard(jobId, ev) {
+  const prog = document.getElementById('prog-' + jobId);
+  const msg = document.getElementById('msg-' + jobId);
+  const log = document.getElementById('log-' + jobId);
+  const badge = document.querySelector(`#job-${jobId} .badge`);
+
+  if (prog) {
+    prog.style.width = ev.progress + '%';
+    if (ev.status === 'completed') prog.classList.add('complete');
+  }
+  if (msg) msg.textContent = ev.message || ev.status;
+  if (log) log.textContent = `[${ev.status}] ${ev.progress}% — ${ev.message}`;
+  if (badge) {
+    badge.textContent = ev.status;
+    badge.className = 'badge ' + badgeClass(ev.status);
+  }
+}
+
+async function loadClips(jobId) {
+  const r = await fetch(API + '/api/jobs/' + jobId);
+  const job = await r.json();
+  const el = document.getElementById('clips-' + jobId);
+  if (!el || !job.clips.length) return;
+
+  el.innerHTML = `<div class="clips-grid">${job.clips.map(c => `
+    <div class="clip-card">
+      <div class="clip-title">${c.highlight.title}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <span class="clip-category">${c.highlight.category}</span>
+        <span class="clip-category" style="background:var(--green-glow);color:var(--green)">score ${c.highlight.score}/10</span>
+      </div>
+      <div class="clip-meta">
+        <span>${c.highlight.start_time.toFixed(1)}s – ${c.highlight.end_time.toFixed(1)}s</span>
+        <span>${(c.file_size / 1e6).toFixed(1)} MB</span>
+      </div>
+      <a class="clip-download" href="${API}/api/jobs/${jobId}/clips/${c.filename}" download>
+        ⬇ Download
+      </a>
+    </div>
+  `).join('')}</div>`;
+}
+
+async function deleteJob(id) {
+  if (!confirm('Delete this job and all clips?')) return;
+  await fetch(API + '/api/jobs/' + id, { method: 'DELETE' });
+  refreshJobs();
+}
+
+// ── Render style jobs ──
+async function refreshStyleJobs() {
+  try {
+    const r = await fetch(API + '/api/style');
+    const data = await r.json();
+    renderStyleJobs(data.jobs);
+  } catch {}
+}
+
+function renderStyleJobs(jobs) {
+  const container = document.getElementById('styleJobs');
+  if (!jobs.length) {
+    container.innerHTML = '<div class="empty-state">No style jobs yet.</div>';
+    return;
+  }
+  container.innerHTML = jobs.map(j => `
+    <div class="job-card" id="style-${j.id}">
+      <div class="job-header">
+        <div class="job-name">
+          ${j.source_filename}
+          ${badgeFor(j.status)}
+        </div>
+        <span class="job-id">${j.id.slice(0, 8)}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:8px;">
+        <strong>Prompt:</strong> ${escHtml(j.prompt.slice(0, 100))}${j.prompt.length > 100 ? '...' : ''}
+        &nbsp;·&nbsp; <strong>Strength:</strong> ${j.strength}
+        &nbsp;·&nbsp; <strong>Model:</strong> ${j.model.split('/').pop()}
+      </div>
+      <div class="progress-container">
+        <div class="progress-bar">
+          <div class="progress-fill ${j.status === 'completed' ? 'complete' : ''}"
+               style="width:${j.progress}%" id="sprog-${j.id}"></div>
+        </div>
+        <div class="progress-info">
+          <span id="smsg-${j.id}">${j.status}${j.error ? ': ' + j.error : ''}</span>
+          <span>${j.progress}%</span>
+        </div>
+      </div>
+      <div class="ws-log" id="slog-${j.id}"></div>
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        ${j.status === 'completed' && j.result_filename ?
+          `<a class="clip-download" href="${API}/api/style/${j.id}/result" download>
+            ⬇ Download styled (${(j.result_size / 1e6).toFixed(1)} MB)
+          </a>` : ''}
+        <button class="btn btn-outline" onclick="deleteStyleJob('${j.id}')" style="color:var(--red)">🗑</button>
+      </div>
+    </div>
+  `).join('');
+
+  jobs.filter(j => !['completed','failed'].includes(j.status) && !wsConnections['s_' + j.id])
+    .forEach(j => connectStyleWS(j.id));
+}
+
+function updateStyleCard(jobId, ev) {
+  const prog = document.getElementById('sprog-' + jobId);
+  const msg = document.getElementById('smsg-' + jobId);
+  const log = document.getElementById('slog-' + jobId);
+  if (prog) {
+    prog.style.width = ev.progress + '%';
+    if (ev.status === 'completed') prog.classList.add('complete');
+  }
+  if (msg) msg.textContent = ev.message || ev.status;
+  if (log) log.textContent = `[${ev.status}] ${ev.progress}% — ${ev.message}`;
+}
+
+async function deleteStyleJob(id) {
+  if (!confirm('Delete this style job?')) return;
+  await fetch(API + '/api/style/' + id, { method: 'DELETE' });
+  refreshStyleJobs();
+}
+
+// ── Helpers ──
+function badgeFor(status) {
+  return `<span class="badge ${badgeClass(status)}">${status}</span>`;
+}
+
+function badgeClass(s) {
+  if (s === 'completed') return 'badge-completed';
+  if (s === 'failed') return 'badge-failed';
+  if (s === 'queued') return 'badge-queued';
+  return 'badge-processing';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Init ──
+refreshJobs();
+refreshStyleJobs();
+</script>
+</body>
+</html>

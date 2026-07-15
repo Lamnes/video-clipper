@@ -1,0 +1,10 @@
+target/
+.git/
+data/
+clips/
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.wav
+*.mp3

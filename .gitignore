@@ -1,0 +1,22 @@
+# Rust build artifacts
+/target
+
+# Runtime data (SQLite DB, uploads, generated clips)
+/data
+
+# Secrets — real keys live here; .env.example is the committed template
+.env
+.env.local
+
+# Media files (test videos, extracted audio, generated clips)
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+*.wav
+*.mp3
+
+# OS noise
+.DS_Store
+Thumbs.db
