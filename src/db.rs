@@ -8,6 +8,16 @@ use crate::models::*;
 
 pub type DbPool = Arc<Mutex<Connection>>;
 
+/// Lock the shared connection, recovering from mutex poisoning.
+///
+/// `lock().unwrap()` would panic forever after any thread panicked while holding
+/// the lock — one unrelated panic would permanently kill every subsequent DB call
+/// and take the whole server down. The connection itself stays usable, so we take
+/// the guard back out of the poisoned result instead.
+fn lock_db(db: &DbPool) -> std::sync::MutexGuard<'_, Connection> {
+    db.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub fn init_db(path: &Path) -> Result<DbPool> {
     let conn = Connection::open(path).context("Failed to open SQLite")?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
@@ -59,7 +69,7 @@ CREATE TABLE IF NOT EXISTS style_jobs (
 /// jobs can never resume — mark them failed instead of leaving them stuck.
 /// Returns (clip_jobs_failed, style_jobs_failed).
 pub fn fail_interrupted_jobs(db: &DbPool) -> Result<(usize, usize)> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     let msg = "Interrupted by server restart";
     let jobs = conn.execute(
         "UPDATE jobs SET status='failed', error=?1, updated_at=?2
@@ -84,7 +94,7 @@ const JOB_COLS: &str =
      highlights_json, clips_json, error, created_at, updated_at, min_clips";
 
 pub fn insert_job(db: &DbPool, job: &Job) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute(
         &format!("INSERT INTO jobs ({JOB_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)"),
         params![
@@ -102,14 +112,14 @@ pub fn insert_job(db: &DbPool, job: &Job) -> Result<()> {
 }
 
 pub fn get_job(db: &DbPool, id: &Uuid) -> Result<Option<Job>> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     let mut stmt = conn.prepare(&format!("SELECT {JOB_COLS} FROM jobs WHERE id=?1"))?;
     let mut rows = stmt.query(params![id.to_string()])?;
     match rows.next()? { Some(r) => Ok(Some(row_to_job(r)?)), None => Ok(None) }
 }
 
 pub fn list_jobs(db: &DbPool, status: Option<&str>) -> Result<Vec<Job>> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     let mut jobs = Vec::new();
     if let Some(s) = status {
         let mut st = conn.prepare(&format!("SELECT {JOB_COLS} FROM jobs WHERE status=?1 ORDER BY created_at DESC"))?;
@@ -124,42 +134,42 @@ pub fn list_jobs(db: &DbPool, status: Option<&str>) -> Result<Vec<Job>> {
 }
 
 pub fn update_job_status(db: &DbPool, id: &Uuid, status: &JobStatus, progress: u8) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute("UPDATE jobs SET status=?1, progress=?2, updated_at=?3 WHERE id=?4",
         params![status.as_str(), progress, now_str(), id.to_string()])?;
     Ok(())
 }
 
 pub fn update_job_duration(db: &DbPool, id: &Uuid, d: f64) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute("UPDATE jobs SET video_duration=?1, updated_at=?2 WHERE id=?3",
         params![d, now_str(), id.to_string()])?;
     Ok(())
 }
 
 pub fn update_job_highlights(db: &DbPool, id: &Uuid, h: &[Highlight]) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute("UPDATE jobs SET highlights_json=?1, updated_at=?2 WHERE id=?3",
         params![serde_json::to_string(h)?, now_str(), id.to_string()])?;
     Ok(())
 }
 
 pub fn update_job_error(db: &DbPool, id: &Uuid, e: &str) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute("UPDATE jobs SET status='failed', error=?1, updated_at=?2 WHERE id=?3",
         params![e, now_str(), id.to_string()])?;
     Ok(())
 }
 
 pub fn update_job_completed(db: &DbPool, id: &Uuid, clips: &[ClipInfo]) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute("UPDATE jobs SET status='completed', progress=100, clips_json=?1, updated_at=?2 WHERE id=?3",
         params![serde_json::to_string(clips)?, now_str(), id.to_string()])?;
     Ok(())
 }
 
 pub fn delete_job(db: &DbPool, id: &Uuid) -> Result<bool> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     Ok(conn.execute("DELETE FROM jobs WHERE id=?1", params![id.to_string()])? > 0)
 }
 
@@ -193,7 +203,7 @@ const STYLE_COLS: &str =
      result_filename, result_size, error, created_at, updated_at";
 
 pub fn insert_style_job(db: &DbPool, sj: &StyleJob) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute(
         &format!("INSERT INTO style_jobs ({STYLE_COLS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)"),
         params![
@@ -207,14 +217,14 @@ pub fn insert_style_job(db: &DbPool, sj: &StyleJob) -> Result<()> {
 }
 
 pub fn get_style_job(db: &DbPool, id: &Uuid) -> Result<Option<StyleJob>> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     let mut stmt = conn.prepare(&format!("SELECT {STYLE_COLS} FROM style_jobs WHERE id=?1"))?;
     let mut rows = stmt.query(params![id.to_string()])?;
     match rows.next()? { Some(r) => Ok(Some(row_to_style(r)?)), None => Ok(None) }
 }
 
 pub fn list_style_jobs(db: &DbPool, status: Option<&str>) -> Result<Vec<StyleJob>> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     let mut jobs = Vec::new();
     if let Some(s) = status {
         let mut st = conn.prepare(&format!("SELECT {STYLE_COLS} FROM style_jobs WHERE status=?1 ORDER BY created_at DESC"))?;
@@ -229,28 +239,28 @@ pub fn list_style_jobs(db: &DbPool, status: Option<&str>) -> Result<Vec<StyleJob
 }
 
 pub fn update_style_status(db: &DbPool, id: &Uuid, status: &StyleStatus, progress: u8) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute("UPDATE style_jobs SET status=?1, progress=?2, updated_at=?3 WHERE id=?4",
         params![status.as_str(), progress, now_str(), id.to_string()])?;
     Ok(())
 }
 
 pub fn update_style_completed(db: &DbPool, id: &Uuid, filename: &str, size: u64) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute("UPDATE style_jobs SET status='completed', progress=100, result_filename=?1, result_size=?2, updated_at=?3 WHERE id=?4",
         params![filename, size as i64, now_str(), id.to_string()])?;
     Ok(())
 }
 
 pub fn update_style_error(db: &DbPool, id: &Uuid, e: &str) -> Result<()> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     conn.execute("UPDATE style_jobs SET status='failed', error=?1, updated_at=?2 WHERE id=?3",
         params![e, now_str(), id.to_string()])?;
     Ok(())
 }
 
 pub fn delete_style_job(db: &DbPool, id: &Uuid) -> Result<bool> {
-    let conn = db.lock().unwrap();
+    let conn = lock_db(db);
     Ok(conn.execute("DELETE FROM style_jobs WHERE id=?1", params![id.to_string()])? > 0)
 }
 

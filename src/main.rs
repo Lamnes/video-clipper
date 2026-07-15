@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
     }
     info!("Reviewer model:  {} ({} rounds)", config.reviewer_model, config.max_review_rounds);
     info!("Style model:     {}", config.fal_style_model);
-    info!("Concurrency:     {}", config.max_concurrent_jobs);
+    info!("Concurrency:     {} clip / {} style", config.max_concurrent_jobs, config.max_concurrent_style_jobs);
     info!("fal.ai:          {}", if config.fal_api_key.is_empty() { "NOT configured" } else { "OK" });
 
     let state = AppState::new(config, db, queue_tx, style_tx);
@@ -122,10 +122,11 @@ async fn queue_worker(state: AppState, mut rx: mpsc::Receiver<QueuedJob>) {
 }
 
 async fn style_queue_worker(state: AppState, mut rx: mpsc::Receiver<QueuedStyleJob>) {
-    info!("Style queue worker started");
+    info!("Style queue worker started (max concurrent: {})", state.style_semaphore.available_permits());
     while let Some(job) = rx.recv().await {
         let state = state.clone();
-        let sem = Arc::clone(&state.semaphore);
+        // Own semaphore — a style job waiting on fal.ai must not block clip cutting.
+        let sem = Arc::clone(&state.style_semaphore);
         tokio::spawn(async move {
             let _permit = match sem.acquire().await { Ok(p) => p, Err(_) => return };
             style_pipeline::run_style_pipeline(state, job.style_id, job.video_path).await;

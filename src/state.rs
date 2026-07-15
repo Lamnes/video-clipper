@@ -15,7 +15,11 @@ pub struct AppState {
     pub progress_tx: Arc<DashMap<Uuid, broadcast::Sender<ProgressEvent>>>,
     pub queue_tx: mpsc::Sender<QueuedJob>,
     pub style_queue_tx: mpsc::Sender<QueuedStyleJob>,
+    /// Limits concurrent clip pipelines (CPU-bound: ffmpeg).
     pub semaphore: Arc<Semaphore>,
+    /// Limits concurrent style pipelines (I/O-bound: waits on fal.ai). Kept separate
+    /// so a long style job can't starve clip processing.
+    pub style_semaphore: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -26,8 +30,9 @@ impl AppState {
         style_queue_tx: mpsc::Sender<QueuedStyleJob>,
     ) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent_jobs));
+        let style_semaphore = Arc::new(Semaphore::new(config.max_concurrent_style_jobs));
         Self {
-            config: Arc::new(config), db, queue_tx, style_queue_tx, semaphore,
+            config: Arc::new(config), db, queue_tx, style_queue_tx, semaphore, style_semaphore,
             http_client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(600))
                 .build().expect("HTTP client"),

@@ -58,6 +58,11 @@ pub struct AppConfig {
     #[arg(long, env = "MAX_CONCURRENT_JOBS", default_value_t = 2)]
     pub max_concurrent_jobs: usize,
 
+    /// Max concurrent style-transfer jobs. Separate from the clip limit: style jobs
+    /// mostly idle waiting on fal.ai, so they must not hold clip-processing slots.
+    #[arg(long, env = "MAX_CONCURRENT_STYLE_JOBS", default_value_t = 2)]
+    pub max_concurrent_style_jobs: usize,
+
     /// SQLite database path (relative to DATA_DIR)
     #[arg(long, env = "DB_FILE", default_value = "clipper.db")]
     pub db_file: String,

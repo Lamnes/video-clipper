@@ -4,7 +4,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::db;
-use crate::models::{ClipInfo, JobStatus};
+use crate::models::{ClipInfo, Highlight, JobStatus};
 use crate::services::{analyzer, ffmpeg, transcribe};
 use crate::state::AppState;
 
@@ -139,6 +139,37 @@ async fn run_inner(state: &AppState, job_id: &Uuid, video_path: &PathBuf) -> Res
         tracing::info!(
             "[{}] Duration enforcement: {} → {} highlights",
             job_id, before_count, highlights.len()
+        );
+    }
+
+    // The selector's overlap check runs before the reviewer's timestamp fixes,
+    // padding and duration clamping — any of those can land two highlights on the
+    // same span, yielding identical clips. Re-check here, after every mutation,
+    // keeping the higher-scored clip of each clashing pair.
+    let before_dedup = highlights.len();
+    highlights.sort_by(|a, b| b.score.cmp(&a.score));
+    let mut deduped: Vec<Highlight> = Vec::new();
+    for h in highlights {
+        let clashes = deduped.iter().any(|kept| {
+            let overlap = (h.end_time.min(kept.end_time) - h.start_time.max(kept.start_time)).max(0.0);
+            let shorter = (h.end_time - h.start_time).min(kept.end_time - kept.start_time);
+            shorter > 0.0 && overlap / shorter > 0.5
+        });
+        if clashes {
+            tracing::info!(
+                "[{}] Dropping '{}' ({:.1}-{:.1}s) — duplicates a higher-scored clip",
+                job_id, h.title, h.start_time, h.end_time
+            );
+        } else {
+            deduped.push(h);
+        }
+    }
+    highlights = deduped;
+    highlights.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap_or(std::cmp::Ordering::Equal));
+    if highlights.len() != before_dedup {
+        tracing::info!(
+            "[{}] Overlap dedup: {} → {} highlights",
+            job_id, before_dedup, highlights.len()
         );
     }
 
