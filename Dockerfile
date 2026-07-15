@@ -30,9 +30,10 @@ RUN useradd -m -s /bin/bash clipper
 
 COPY --from=builder /app/target/release/video-clipper /usr/local/bin/video-clipper
 
-# Data volume
+# Data dir. Deliberately no `VOLUME /data`: Railway rejects the instruction
+# ("use Railway Volumes"), and it isn't needed — docker-compose mounts
+# clipper-data:/data explicitly, Railway mounts its volume at /data.
 RUN mkdir -p /data && chown clipper:clipper /data
-VOLUME /data
 
 USER clipper
 WORKDIR /data

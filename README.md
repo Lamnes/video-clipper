@@ -254,10 +254,11 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/video-clipper /usr/local/bin/
 ENV DATA_DIR=/data
-VOLUME /data
 EXPOSE 8080
 ENTRYPOINT ["video-clipper"]
 ```
+
+> Инструкции `VOLUME /data` в Dockerfile намеренно нет: Railway её отклоняет (`docker VOLUME ... is not supported, use Railway Volumes`). Персистентность даёт монтирование в рантайме — `clipper-data:/data` в docker-compose, Railway Volume на `/data` в облаке.
 
 ```yaml
 # docker-compose.yml
