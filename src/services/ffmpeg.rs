@@ -88,11 +88,19 @@ pub fn cut_segment(video: &Path, out: &Path, start: f64, end: f64, vertical_crop
     }
 
     args.extend([
+        // Take the first video + first audio track explicitly (the `?` makes audio
+        // optional so silent sources don't fail), and downmix to stereo. Without
+        // this, 5.1 AC3/DTS sources (Blu-ray/broadcast remuxes) re-encode to
+        // 6-channel AAC with an "unknown" channel layout that most players and
+        // browsers render as silence — the "no sound" clips.
+        "-map".into(), "0:v:0".into(),
+        "-map".into(), "0:a:0?".into(),
         "-c:v".into(), "libx264".into(),
         "-preset".into(), "fast".into(),
         "-crf".into(), "23".into(),
         "-c:a".into(), "aac".into(),
         "-b:a".into(), "128k".into(),
+        "-ac".into(), "2".into(),
         "-avoid_negative_ts".into(), "make_zero".into(),
         "-y".into(), out.to_string_lossy().into_owned(),
     ]);
